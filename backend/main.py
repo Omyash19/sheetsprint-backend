@@ -1,14 +1,28 @@
+import os
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from google import genai
-import os
 from dotenv import load_dotenv
 
-# Load your API key from the .env file
+# 1. Load the environment (Works for .env locally and Render in the cloud)
 load_dotenv()
 
-# Initialize the new GenAI client
-client = genai.Client(api_key="AIzaSyDMzy-aJ5PO1cNRtX6JTpeP8Vt60l3lHeo")
+# 2. Get the key securely from the system environment
+api_key = os.getenv("GEMINI_API_KEY")
+
+# 3. Debugging (Check these in Render Logs to verify the vault is working)
+if not api_key:
+    print("DEBUG: GEMINI_API_KEY is EMPTY!")
+else:
+    print(f"DEBUG: Key found (starts with: {api_key[:5]}...)")
+
+# 4. Initialize the Client ONE TIME using the secure variable
+if api_key:
+    client = genai.Client(api_key=api_key)
+else:
+    # This prevents the app from crashing entirely if the key is missing
+    client = None
+    print("DEBUG: No API key found in environment! Client not initialized.")
 
 app = FastAPI(title="FormulaFlow AI Engine")
 
@@ -24,6 +38,10 @@ def home():
 
 @app.post("/generate-formula")
 async def generate_formula(context: SheetContext):
+    # Safety check in case the client failed to initialize
+    if not client:
+        raise HTTPException(status_code=500, detail="GenAI client is not initialized. Check your GEMINI_API_KEY in Render.")
+
     try:
         system_prompt = (
             f"You are a Senior Data Analyst. A user is working in a spreadsheet named '{context.sheet_name}'. "
@@ -33,41 +51,29 @@ async def generate_formula(context: SheetContext):
             "Do not include any text, markdown backticks, or explanations."
         )
 
-        # Using the new SDK syntax
+        # Generating the formula using the latest flash model
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-2.0-flash',
             contents=system_prompt
         )
         
         formula = response.text.strip()
         
+        # Clean up any potential markdown backticks the AI might add
+        if "```" in formula:
+            formula = formula.replace("```excel", "").replace("```", "").strip()
+            
         if not formula.startswith('='):
             raise ValueError("AI failed to return a valid formula.")
 
         return {"formula": formula}
     
     except Exception as e:
+        print(f"Error during formula generation: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
-# 1. Load the environment
-load_dotenv()
-
-# 2. Get the key from the system environment
-api_key = os.getenv("GEMINI_API_KEY")
-
-# 3. Debugging (Check these in Render Logs)
-if not api_key:
-    print("DEBUG: GEMINI_API_KEY is EMPTY!")
-else:
-    print(f"DEBUG: Key found (starts with: {api_key[:5]}...)")
-
-# 4. Initialize the Client using the verified api_key
-if api_key:
-    client = genai.Client(api_key=api_key)
-else:
-    # This will prevent the app from crashing until we fix the key
-    client = None
+    # Crucial for Render: dynamically bind to the port Render assigns, default to 8000 locally
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
