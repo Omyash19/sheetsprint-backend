@@ -1,10 +1,11 @@
 import os
+import time
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from google import genai
 from dotenv import load_dotenv
 
-# 1. Load the environment (Works for .env locally and Render in the cloud)
+# 1. Load the environment
 load_dotenv()
 
 # 2. Get the key securely from the system environment
@@ -20,7 +21,6 @@ else:
 if api_key:
     client = genai.Client(api_key=api_key)
 else:
-    # This prevents the app from crashing entirely if the key is missing
     client = None
     print("DEBUG: No API key found in environment! Client not initialized.")
 
@@ -38,7 +38,6 @@ def home():
 
 @app.post("/generate-formula")
 async def generate_formula(context: SheetContext):
-    # Safety check in case the client failed to initialize
     if not client:
         raise HTTPException(status_code=500, detail="GenAI client is not initialized. Check your GEMINI_API_KEY in Render.")
 
@@ -51,15 +50,17 @@ async def generate_formula(context: SheetContext):
             "Do not include any text, markdown backticks, or explanations."
         )
 
-        # Generating the formula using the latest flash model
+        # 5. Sleep buffer to prevent Free Tier rate limits
+        time.sleep(4) 
+
+        # 6. Downgraded to 1.5-flash for Free Tier stability
         response = client.models.generate_content(
-            model='gemini-2.0-flash',
+            model='gemini-1.5-flash', 
             contents=system_prompt
         )
         
         formula = response.text.strip()
         
-        # Clean up any potential markdown backticks the AI might add
         if "```" in formula:
             formula = formula.replace("```excel", "").replace("```", "").strip()
             
@@ -74,6 +75,5 @@ async def generate_formula(context: SheetContext):
 
 if __name__ == "__main__":
     import uvicorn
-    # Crucial for Render: dynamically bind to the port Render assigns, default to 8000 locally
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
