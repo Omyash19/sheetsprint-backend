@@ -52,3 +52,22 @@ async def generate_formula(context: SheetContext):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+# 1. Load the environment
+load_dotenv()
+
+# 2. Get the key from the system environment
+api_key = os.getenv("GEMINI_API_KEY")
+
+# 3. Debugging (Check these in Render Logs)
+if not api_key:
+    print("DEBUG: GEMINI_API_KEY is EMPTY!")
+else:
+    print(f"DEBUG: Key found (starts with: {api_key[:5]}...)")
+
+# 4. Initialize the Client using the verified api_key
+if api_key:
+    client = genai.Client(api_key=api_key)
+else:
+    # This will prevent the app from crashing until we fix the key
+    client = None
